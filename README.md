@@ -7,7 +7,7 @@ Eventually, I hope to be able to drive all features of the Xserve (IPMI interact
 
 ---
 ## Building
-Currently, this project should build & run under macOS and Linux (but I might have broken something – please let me know!)
+Currently, this project should build & run under macOS and Linux (but I might have broken something – please let me know!). Make sure you have `libusb` installed.
 
 ```bash
 cmake . && make
