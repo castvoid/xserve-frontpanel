@@ -1,11 +1,3 @@
-//
-//  main.c
-//  hwmond
-//
-//  Created by Harry Jones on 21/08/2017.
-//  Copyright © 2017 Harry Jones. All rights reserved.
-//
-
 /*
  This is a small program that demonstrates how to drive the Intel Xserve's front
  panel CPU activity LEDs. I've only tested it on a 2009 Dual Xeon Xserve, but it
@@ -21,11 +13,19 @@
 #include <stdbool.h>
 #include <libusb.h>
 #include <math.h>
+#include <pthread.h>
+#include <inttypes.h>
+
+#include "cpu_usage.h"
 
 #define PANEL_VENDOR 0x5ac
 #define PANEL_USB_ID 0x8261
 #define PANEL_CONFIG 0
+#define MAX_CHANGE_PER_MS 0.02
+#define NUM_LEDS_PER_ROW 8
+#define NUM_LED_ROWS 2
 #define PANEL_DATA_SIZE 32
+#define LED_UPDATE_INTERVAL ((useconds_t)(1e6/100) /* 10ms */)
 
 /**
  Connects to the front panel over USB, and configures it to be ready to accept
@@ -169,39 +169,80 @@ int write_bytes_to_frontpanel(void *bytes,
     return actual_length;
 }
 
-void loop_update_panel (libusb_device_handle *frontpanel_device_handle,
-                        unsigned char frontpanel_endpoint_addr) {
-    const useconds_t SLEEP_TIME = (useconds_t)(1e6/100);
+/**
+ Smoothly updates the LEDs with the values from `usages` every LED_UPDATE_INTERVAL
+
+ @param frontpanel_device_handle The device handle to write to
+ @param frontpanel_endpoint_addr The address of theendpoint to be used on the device
+ @param usages An array of length NUM_LED_ROWS containing a usage proportion (from 0 to 1) for each LED row
+ */
+void loop_update_panel(libusb_device_handle *frontpanel_device_handle,
+                       unsigned char frontpanel_endpoint_addr,
+                       const volatile float *usages) {
 
     uint8_t *output_bytes = calloc(PANEL_DATA_SIZE, sizeof(uint8_t));
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
 
-    float offset = 0;
+    const float usage_bucket_size = 1.0f/NUM_LEDS_PER_ROW;
+    float usage_smoothed[NUM_LED_ROWS];
     while ( 1 ) {
-        do {
-            while ( write_bytes_to_frontpanel(output_bytes,
-                                              PANEL_DATA_SIZE,
-                                              frontpanel_device_handle,
-                                              frontpanel_endpoint_addr) == 0 ) {
-                sleep(2);
+        for (int row = 0; row < NUM_LED_ROWS; row++) {
+            float usage_real = usages[row];
+
+            if (usage_real > usage_smoothed[row] + MAX_CHANGE_PER_MS) {
+                usage_smoothed[row] += MAX_CHANGE_PER_MS;
+            } else if (usage_real < usage_smoothed[row] - MAX_CHANGE_PER_MS) {
+                usage_smoothed[row] -= MAX_CHANGE_PER_MS;
+            } else if (isnan(usage_smoothed[row])) {
+                usage_smoothed[row] = usage_real;
+            } else {
+                usage_smoothed[row] += (usage_real - usage_smoothed[row]) / 5;
             }
-        } while ( 0 ); // TODO: while ( CPU_count == 0 );
 
-        for (int i = 0; i < 16; i++) {
-            // Just a nice, smooth function
-            // You'd actually want this to use the CPU usage, but there's no
-            // nice cross-platform way of doing so.
-            output_bytes[i] = (uint8_t)( 50.0 * (1+sin(M_PI*fmodf(i+offset,16)/8.0f)) );
+            float usage_temp = usage_smoothed[row];
+            for (int i = 0; i < NUM_LEDS_PER_ROW; i++) {
+                float led_lit_proportion = fmaxf( fminf(usage_temp, usage_bucket_size), 0 ) / usage_bucket_size;
+                output_bytes[i + row * NUM_LEDS_PER_ROW] = (uint8_t)roundf(led_lit_proportion * UINT8_MAX);
+                usage_temp -= usage_bucket_size;
+            }
         }
-        offset = fmodf(offset + 0.1f, 16);
 
-        usleep(SLEEP_TIME);
+        while ( write_bytes_to_frontpanel(output_bytes,
+                                          PANEL_DATA_SIZE,
+                                          frontpanel_device_handle,
+                                          frontpanel_endpoint_addr) == 0 ) {
+            sleep(1);
+        }
+
+        usleep(LED_UPDATE_INTERVAL);
     }
 
 #pragma clang diagnostic pop
 }
+
+typedef struct {
+    libusb_device_handle *device_handle;
+    unsigned char endpoint_addr;
+    const volatile float *usages;
+} panel_update_loop_args;
+
+static void *update_panel_thread_fn(void *args) {
+    panel_update_loop_args* args_real = (panel_update_loop_args *)args;
+    loop_update_panel(args_real->device_handle, args_real->endpoint_addr, args_real->usages);
+    return NULL;
+}
+
+
+static void *poll_cpu_usage_thread_fn(void *raw_arg) {
+    volatile float *usages = (volatile float *)raw_arg;
+
+
+
+    return NULL;
+}
+
 
 int main(int argc, const char * argv[]) {
     libusb_device_handle *device_handle = NULL;
@@ -210,7 +251,21 @@ int main(int argc, const char * argv[]) {
     int error = setupUSB(&device_handle, &endpoint_addr);
 
     if (!error) {
-        loop_update_panel(device_handle, endpoint_addr);
+        float usages[2] = {1.0f, 1.0f};
+
+        panel_update_loop_args args = {
+            .device_handle = device_handle,
+            .endpoint_addr = endpoint_addr,
+            .usages = usages,
+        };
+        
+        pthread_t update_panel_thread;
+        int r = pthread_create(&update_panel_thread, NULL, update_panel_thread_fn, &args);
+        if (r != 0) printf("pthread_create failed\n");
+
+
+        cpu_usage_setup();
+        cpu_update_usage_loop(usages, sizeof(usages) / sizeof(usages[0]));
     }
 
     if (device_handle) {
