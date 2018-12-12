@@ -10,7 +10,7 @@
 #include <assert.h>
 #include <unistd.h>
 
-#define CPU_UPDATE_INTERVAL ((useconds_t)(1e6) /* 1s */)
+#define CPU_UPDATE_INTERVAL ((useconds_t)(1e6 / 5))
 
 static int get_num_packages() {
     int num_packages;

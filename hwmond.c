@@ -21,11 +21,11 @@
 #define PANEL_VENDOR 0x5ac
 #define PANEL_USB_ID 0x8261
 #define PANEL_CONFIG 0
-#define MAX_CHANGE_PER_MS 0.02
 #define NUM_LEDS_PER_ROW 8
 #define NUM_LED_ROWS 2
 #define PANEL_DATA_SIZE 32
-#define LED_UPDATE_INTERVAL ((useconds_t)(1e6/100) /* 10ms */)
+#define LED_UPDATE_INTERVAL ((useconds_t)(1e6/60))
+#define LED_MOVE_RATE 0.05
 
 /**
  Connects to the front panel over USB, and configures it to be ready to accept
@@ -188,17 +188,20 @@ void loop_update_panel(libusb_device_handle *frontpanel_device_handle,
     const float usage_bucket_size = 1.0f/NUM_LEDS_PER_ROW;
     float usage_smoothed[NUM_LED_ROWS];
     while ( 1 ) {
+        bool updated = false;
+
         for (int row = 0; row < NUM_LED_ROWS; row++) {
             float usage_real = usages[row];
 
-            if (usage_real > usage_smoothed[row] + MAX_CHANGE_PER_MS) {
-                usage_smoothed[row] += MAX_CHANGE_PER_MS;
-            } else if (usage_real < usage_smoothed[row] - MAX_CHANGE_PER_MS) {
-                usage_smoothed[row] -= MAX_CHANGE_PER_MS;
-            } else if (isnan(usage_smoothed[row])) {
+            if (fabs(usage_smoothed[row] - usage_real) < 0.001) {
+                continue;
+            }
+            updated = true;
+
+            if (isnan(usage_smoothed[row])) {
                 usage_smoothed[row] = usage_real;
             } else {
-                usage_smoothed[row] += (usage_real - usage_smoothed[row]) / 5;
+                usage_smoothed[row] = LED_MOVE_RATE * usage_real + (1-LED_MOVE_RATE) * usage_smoothed[row];
             }
 
             float usage_temp = usage_smoothed[row];
@@ -209,10 +212,10 @@ void loop_update_panel(libusb_device_handle *frontpanel_device_handle,
             }
         }
 
-        while ( write_bytes_to_frontpanel(output_bytes,
-                                          PANEL_DATA_SIZE,
-                                          frontpanel_device_handle,
-                                          frontpanel_endpoint_addr) == 0 ) {
+        while ( updated &&  write_bytes_to_frontpanel(output_bytes,
+                                                      PANEL_DATA_SIZE,
+                                                      frontpanel_device_handle,
+                                                      frontpanel_endpoint_addr) == 0 ) {
             sleep(1);
         }
 
@@ -234,16 +237,6 @@ static void *update_panel_thread_fn(void *args) {
     return NULL;
 }
 
-
-static void *poll_cpu_usage_thread_fn(void *raw_arg) {
-    volatile float *usages = (volatile float *)raw_arg;
-
-
-
-    return NULL;
-}
-
-
 int main(int argc, const char * argv[]) {
     libusb_device_handle *device_handle = NULL;
     unsigned char endpoint_addr = 0;
@@ -258,7 +251,7 @@ int main(int argc, const char * argv[]) {
             .endpoint_addr = endpoint_addr,
             .usages = usages,
         };
-        
+
         pthread_t update_panel_thread;
         int r = pthread_create(&update_panel_thread, NULL, update_panel_thread_fn, &args);
         if (r != 0) printf("pthread_create failed\n");
