@@ -22,7 +22,7 @@ add_executable(hwmond ${SOURCE_FILES})
 if (APPLE)
     find_library(CoreFoundation CoreFoundation)
     find_library(IOKit IOKit)
-    target_link_libraries(hwmond ${CoreFoundation} ${IOKit})
+    target_link_libraries(hwmond ${CoreFoundation} ${IOKit} objc)
 endif()
 
 include_directories(${LIBUSB_INCLUDE_DIR})
