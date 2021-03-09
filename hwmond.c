@@ -71,7 +71,7 @@ int setupUSB(libusb_device_handle **frontpanel_device_handle_ptr,
     libusb_device *dev = libusb_get_device(device_handle);
 
     if ( (error = libusb_set_configuration(device_handle, PANEL_CONFIG)) ) {
-        printf("Couldn't set configuration to %d: got %d", PANEL_CONFIG, error);
+        printf("Couldn't set configuration to %d: %s", PANEL_CONFIG, libusb_error_name(error));
         error = 1;
         goto fail;
     }
@@ -86,7 +86,7 @@ int setupUSB(libusb_device_handle **frontpanel_device_handle_ptr,
     }
     const int interface_num = 0;
     if ( (error = libusb_claim_interface(device_handle, interface_num)) ) {
-        printf("Couldn't claim interface: %d\n", error);
+        printf("Couldn't claim interface: %s\n", libusb_error_name(error));
         error = 1;
         goto fail;
     }
