@@ -13,7 +13,7 @@
 
 #define CPU_UPDATE_INTERVAL ((useconds_t)(1e6 / 5))
 
-static int get_num_packages() {
+static int get_num_packages(void) {
     int num_packages;
     size_t sizeof_num_packages = sizeof(num_packages);
 
@@ -225,7 +225,7 @@ int get_aggregated_usage(volatile float *usage_breakdowns, unsigned int num_brea
     return 0;
 }
 
-int cpu_usage_setup() {
+int cpu_usage_setup(void) {
     num_packages = get_num_packages();
     if (num_packages < 0) {
         printf("Invalid # packages, exiting...\n");
