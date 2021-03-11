@@ -50,7 +50,11 @@ int setupUSB(libusb_device_handle **frontpanel_device_handle_ptr,
         goto fail;
     }
 
+#if LIBUSB_API_VERSION >= 0x01000106
+    libusb_set_option(usb_context, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_INFO);
+#else
     libusb_set_debug(usb_context, LIBUSB_LOG_LEVEL_INFO);
+#endif
 
     // XXX: lazy - can be more robust
     device_handle = libusb_open_device_with_vid_pid(usb_context,
