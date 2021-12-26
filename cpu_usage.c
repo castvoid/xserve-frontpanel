@@ -69,7 +69,7 @@ int fetch_ticks_by_core(unsigned int **ticks_by_core_busy_ptr, unsigned int **ti
     // Deallocate memory from the host_processor_info call
     vm_deallocate(mach_task_self(), (vm_address_t)load_info, load_info_len);
 
-    // Ouptut aggregated data
+    // Output aggregated data
     *ticks_by_core_busy_ptr = ticks_by_core_busy;
     *ticks_by_core_total_ptr = ticks_by_core_total;
     *num_cores_ptr = num_cores;
